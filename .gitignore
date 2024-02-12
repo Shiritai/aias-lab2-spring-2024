@@ -1,0 +1,6 @@
+*.ipynb_checkpoints/
+lab2-4/analyzer/build/
+*.zip
+lab2-4/analyzer/libtorch/
+lab2-4/traced_resnet_model.pt
+

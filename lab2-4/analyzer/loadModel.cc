@@ -21,13 +21,4 @@ int main(int argc, const char* argv[]) {
   }
 
   std::cout << "load the torchscript model, " + std::string(argv[1]) + ", successfully \n";
-
-  // Create a vector of inputs.
-  std::vector<torch::jit::IValue> inputs;	
-  inputs.push_back(torch::ones({1, 3, 224, 224}));
-
-  // Execute the model and turn its output into a tensor.
-  at::Tensor output = module.forward(inputs).toTensor();
-  std::cout << output.slice(/*dim=*/1, /*start=*/0, /*end=*/5) << '\n';
-
 }
