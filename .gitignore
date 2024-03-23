@@ -4,3 +4,16 @@ lab2-4/analyzer/build/
 lab2-4/analyzer/libtorch/
 lab2-4/traced_resnet_model.pt
 
+*.log
+*.onnx
+hw*.txt
+.cache
+build
+__pycache__
+data
+models
+log
+test.*
+libtorch
+tmp*
+.vscode
