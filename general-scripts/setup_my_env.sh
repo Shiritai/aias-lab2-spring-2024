@@ -6,25 +6,30 @@ print_info() {
     echo -e "[\e[1;34mINFO\e[0m] $1"
 }
 
+check_and_install() {
+    if ! command -v $1 > /dev/null
+    then
+        print_info "$1 DNE, installing them..."
+        sudo apt install -y $1
+    fi
+}
+
 # install packages I prefer :)
 check_or_install_pkg() {
+    sudo apt update
     prefer_pkg="vim unzip"
-    if ! command -v $prefer_pkg > /dev/null
-    then
-        print_info "$prefer_pkg DNE, installing them..."
-        sudo apt install -y $prefer_pkg
-    fi
+    for item in ${prefer_pkg}; do
+        check_and_install "${item}"
+    done
 }
 
 # setup oh-my-zsh and its dependencies
 check_or_install_omz() {
     needed_pkg="zsh git curl"
     # install zsh and needed commands
-    if ! command -v $needed_pkg > /dev/null
-    then
-        print_info "Zsh and needed packages DNE, installing them..."
-        sudo apt install -y $needed_pkg
-    fi
+    for item in ${needed_pkg}; do
+        check_and_install "${item}"
+    done
 
     # set zsh as default shell
     if ! cat /etc/passwd | grep $USER | grep zsh > /dev/null
