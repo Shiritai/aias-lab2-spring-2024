@@ -8,6 +8,9 @@ from dynamic_linear import DynamicLinear, GemmInputInfo, GemmOutputInfo
 
 # global variables to config...
 model_dir = "models"
+if not os.path.exists(model_dir):
+    run_process(["mkdir", "-p", model_dir])
+
 # max width of each dimension
 m_mx, n_mx, k_mx = 64, 64, 64
 
@@ -131,9 +134,10 @@ def parse_gemm_size(info: dict[OnnxHelper.NodeInfoType, dict]) \
             (m, k, n))
     
 
-# manipulate onnx model using OnnxHelper API implement by myself
+# Manipulate onnx model using OnnxHelper API implement by myself
 replacements: List[tuple[int, onnx.GraphProto]] = []
 my_models: List[DynamicLinear] = []
+# Prepare replacement layers
 for idx in alexnet_helper.select_all(lambda n: n.op_type == "Gemm"):
     _, node_info = alexnet_helper.get_info_from_node(idx)
     (A, B, bias, C), (trans_a, trans_b), (m, k, n) = parse_gemm_size(node_info)
@@ -160,6 +164,7 @@ for idx in alexnet_helper.select_all(lambda n: n.op_type == "Gemm"):
     replacements.append((idx, model.graph))
     my_models.append(model)
 
+# Replace all GEMM layers at correct place
 my_alexnet_helper.replace_all(replacements)
 onnx.save(my_alexnet_helper.model, f"{model_dir}/modified.onnx") # for viewing result
 
@@ -167,12 +172,14 @@ print_hw_result("2-3-3",
                 "Replace the Linear layers in the AlexNet with the equivalent subgraphs (2)",
                 *json_stringify(my_alexnet_helper.summary(wrap_graph_name=True)))
     
-# # 2-3-4 Correctness Verification
+# 2-3-4 Correctness Verification
 
-# my_models[0].test_equivalence()
 run_cases = 0
 for m in my_models:
+    # check m is an valid graph
     m_helper = OnnxHelper(m.test_model)
+    m_helper = OnnxHelper(m.model)
+    # run test
     run_cases = m.test_equivalence()
 
 print_hw_result("2-3-4",

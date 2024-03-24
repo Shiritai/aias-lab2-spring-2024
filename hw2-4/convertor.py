@@ -4,7 +4,6 @@ dep = ["onnx2torch"]
 install_dependency(dep)
 
 import onnx
-from onnx2torch import convert
 
 # global variables to config...
 model_dir = "models"
@@ -26,18 +25,13 @@ else:
 
 model = onnx.load(onnx_model_path)
 
+from onnx2torch import convert
 import torch
 import torchinfo
-from functools import reduce
 
 device = torch.device("cpu")
 
 torch_model = convert(model).to(device)
-
-# Add forward hook to record output model shape
-# def activation_recorder(model: torch.nn.Module, _, output: torch.Tensor):
-#     model.output_shape = reduce(lambda a, b: a * b, output.shape, 1)
-# torch_model.apply(lambda m: m.register_forward_hook(activation_recorder))
 
 torch_model.eval()
 input_shape = (1, 3, 224, 224)

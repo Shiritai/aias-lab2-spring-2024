@@ -82,14 +82,16 @@ def get_children(m) -> List[Union[List, str]]:
         return [get_children(c) for c in m.children()]
 
 layers = { *flatten(get_children(model)) }
+
+# the default macs exists when we ignore all possible layers,
+#   which we're not curious about, so we should record it
+#   and subtract it out for all results.
 default_layer_macs, _ = get_model_complexity_info(model,
                                                input_shape,
                                                output_precision=10,
                                                ignore_modules=[*layers],
                                                as_strings=False,
                                                print_per_layer_stat=False,)
-print(f"null layer macs: ", default_layer_macs)
-print(f"layers: ", layers)
 layers = layers - { torch.nn.Dropout }
 # iterate sorted set to ensure that anytime the result order is the same
 for layer in sorted(layers, key=lambda e: e.__name__):

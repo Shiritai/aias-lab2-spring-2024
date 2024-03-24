@@ -29,4 +29,4 @@ then
 fi
 
 mkdir -p ${build_path}
-cd ${build_path} && cmake .. && make && ./hw > tmp.txt
+cd ${build_path} && cmake ..

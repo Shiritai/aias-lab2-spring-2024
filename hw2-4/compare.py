@@ -85,7 +85,7 @@ for layer in sorted(layers, key=lambda e: e.__name__):
                                               as_strings=False,
                                               print_per_layer_stat=False,)
     layer_macs -= default_layer_macs
-    info_to_print.append(f"MACs for [ {layer.__name__:^17} ] layers is {layer_macs:>11}")
+    info_to_print.append(f"MACs for [ {layer.__name__:^18} ] layers is {layer_macs:>11}")
 print_hw_result("2-4-3-compare",
                 "Calculate computation requirements",
                 *info_to_print)

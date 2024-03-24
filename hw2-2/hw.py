@@ -1,4 +1,4 @@
-from tabulate import SEPARATING_LINE, tabulate
+from tabulate import tabulate
 from util import *
 
 model_path_prefix = "models"
@@ -54,12 +54,13 @@ for cnt, n in enumerate(model.graph.node):
     tot_i_bw += i_bw
     tot_o_bw += o_bw
     bw_ls.append([n.name, i_bw, o_bw, i_bw + o_bw])
-bw_ls.append([*["-----"] * 4])
+bw_ls.append([*["-----"] * 4]) # splitter of table
 bw_ls.append(["Total I/O activation", tot_i_bw, tot_o_bw, "-"])
 
 info_list = [
     f"Peek bandwidth (2-2-2): {max_bw} bytes",
-    f"Total bandwidth (2-2-3): {tot_bw} bytes\n",
+    f"Total activation bandwidth (2-2-3): {tot_o_bw} bytes",
+    f"Total bandwidth: {tot_bw} bytes\n",
     "List of bandwidth of each layer:\n",
     *tabulate(bw_ls,
               tablefmt="rounded_outline",

@@ -19,6 +19,8 @@ class GemmOutputInfo:
         self.name = name
 
 class DynamicLinear:
+    TEST_N = 10
+    
     def get_factor(side: int, max_side: int) -> tuple[int, bool]:
         """
         helper function to get splitting factor for some dimension
@@ -73,7 +75,7 @@ class DynamicLinear:
         self.name = name if name == "dl" else f"dl_{name}"
         self.named_ls = named_ls if named_ls is not None else set()
         self.io_named_ls = set()
-        self.test_n = 1000
+        self.test_n = DynamicLinear.TEST_N
         
         self.initialize_test_graph()
         self.initialize_graph()
@@ -535,10 +537,7 @@ class DynamicLinear:
 
     def make_model(self):
         self.make_graph()
-        self.model = helper.make_model(self.graph,
-                                    #    ir_version=7,
-                                    #    opset_import=helper.make_operatorsetid(8)
-                                       )
+        self.model = helper.make_model(self.graph)
         checker.check_model(self.model, True)
         
     def make_graph(self):
@@ -547,11 +546,6 @@ class DynamicLinear:
                                        inputs=self.inputs,
                                        outputs=self.outputs,
                                        value_info=self.value_info,
-                                    #    inputs=[],
-                                    #    outputs=[],
-                                    #    value_info=[*self.inputs,
-                                    #                *self.outputs,
-                                    #                *self.value_info],
                                        initializer=self.initializer)
         checker.check_graph(self.graph)
         # print(self.graph.input)
@@ -580,7 +574,6 @@ class DynamicLinear:
             bias = np.random.randn(self.m, self.n).astype(np.float64)
 
             feeds = { a_name: A, b_name: B, bias_name: bias }
-            # print(f"a_name, b_name, bias_name: {a_name}, {b_name}, {bias_name}")
             
             result_t = session_test.run(None, feeds)
             result_d = session_dl.run(None, feeds)

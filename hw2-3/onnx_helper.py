@@ -261,8 +261,8 @@ class OnnxHelper:
     
     def replace_all(self, replacements: List[tuple[int, onnx_ml_pb2.GraphProto]]):
         """
-        Replace all the nodes w.r.t. given node indices and re-indexing
-        replacements: list of < old_node_idx, new_graph > pair
+        Replace all the nodes w.r.t. given node indices and re-indexing.
+        replacements: list of `<< old_node_idx, new_graph >>` pair
         """
         replacements.sort(key = lambda idx: -idx[0])
         

@@ -447,7 +447,7 @@ output_py_summary_top_level_only = [
 from functools import reduce
 
 def print_size(l: list, msg: str):
-    print(f"{sum(reduce(lambda a, b: a * b, _l, 1) for _l in l) * 4}")
+    print(f"{msg}: {sum(reduce(lambda a, b: a * b, _l, 1) for _l in l) * 4}")
     
 print_size(output_shape_cpp, "Mem requirement in CPP")
 print_size(output_shape_py_summary, "Mem requirement from torch summary")

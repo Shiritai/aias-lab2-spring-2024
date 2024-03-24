@@ -1,6 +1,3 @@
-#include <ATen/core/interned_strings.h>
-#include <ATen/core/ivalue.h>
-#include <c10/util/ArrayRef.h>
 #include <cstdint>
 #include <fstream>
 #include <functional>
@@ -9,13 +6,12 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
-#include <torch/csrc/jit/api/module.h>
 #include <torch/script.h>
 #include <torch/torch.h>
 #include <unordered_map>
 #include <vector>
 
-#define PT_JIT_PARSER_DEBUG
+// #define PT_JIT_PARSER_DEBUG // uncomment this line to enable debug mode
 #ifdef PT_JIT_PARSER_DEBUG
 /**
  * @brief Print debug message if PT_JIT_PARSER_DEBUG is defined
@@ -36,7 +32,7 @@ void print_hw_result(const char *mark,
 {
   auto print_to = [=](std::ostream &o) {
     o << '[' << mark << "] " << description << std::endl;
-    for (auto line : info_list)
+    for (auto &line: info_list)
       o << "\t" << line << std::endl;
   };
 
@@ -62,10 +58,11 @@ std::string replace(std::string&& str,
 bool has_keyword(std::string word,
                  std::string key)
 {
-  std::transform(word.begin(), word.end(), word.begin(),
-    [](unsigned char c){ return std::tolower(c); });
-  std::transform(key.begin(), key.end(), key.begin(),
-    [](unsigned char c){ return std::tolower(c); });
+  auto lower = [](std::string &s) {
+    std::transform(s.begin(), s.end(), s.begin(),
+      [](unsigned char c){ return std::tolower(c); }); };
+  lower(word);
+  lower(key);
   
   return word.find(key) != word.npos;
 }
@@ -77,7 +74,7 @@ int64_t cal_conv2d_macs(c10::IntArrayRef k_shape,
                         int i_channels,
                         int o_channels,
                         int groups,
-                        bool with_bias = true)
+                        bool with_bias = false)
 {
   if (k_shape.size() != 2) {
     std::stringstream ss;
@@ -86,12 +83,12 @@ int64_t cal_conv2d_macs(c10::IntArrayRef k_shape,
   }
   auto k_ops = (static_cast<double>(k_shape[0]) * k_shape[1] * i_channels) / groups;
   auto o_size = output_shape[0] * output_shape[1] * o_channels;
-  return static_cast<int64_t>((k_ops + with_bias) * o_size);
+  return static_cast<int64_t>((k_ops + with_bias) * o_size); // count bias if needed
 }
 
 int64_t cal_linear_macs(c10::IValue &i_shape,
                         c10::IValue &o_shape,
-                        bool with_bias = true)
+                        bool with_bias = false)
 {  
   int64_t res = 1;
   for (auto &n: i_shape.toTensor().sizes())
@@ -101,7 +98,7 @@ int64_t cal_linear_macs(c10::IValue &i_shape,
   for (auto &n: o_shape.toTensor().sizes())
     if (n)
       o_res *= n;
-  res = (res + with_bias) * o_res; // count bias
+  res = (res + with_bias) * o_res; // count bias if needed
   return res;
 }
 
@@ -638,12 +635,11 @@ void evaluate(torch::jit::script::Module &model,
               node_io_t &node_io_map,
               o_op_t &oo_map,
               nv_t &nv_map,
-              std::vector<io_delegate_fn_t> delegates)
+              std::vector<io_delegate_fn_t> missions)
 {
   /**
    * Initial dummy input
    */
-  // auto input = torch::ones({1, 3, 224, 224});
   nv_map[conv_name("input_1")] = input;
   /**
    * Do inference manually by running forward functions
@@ -676,10 +672,12 @@ void evaluate(torch::jit::script::Module &model,
     // add output of hidden layer to tensor map
     nv_map[o_name] = hidden_o;
 
-    // invoke all delegators
-    for (auto &d: delegates)
+    // invoke all delegated missions
+    for (auto &d: missions)
       d(submodule, hidden_o, io_info.second);
   }
+}
+
 }
 
 /**
@@ -697,9 +695,9 @@ std::pair<std::vector<std::pair<int64_t,
           std::pair<int64_t,
                     int64_t>>
 evaluate_with_missions(torch::jit::script::Module &model,
-                       node_io_t &node_io_map,
-                       o_op_t &oo_map,
-                       nv_t &nv_map)
+                       ptjit_parser::node_io_t &node_io_map,
+                       ptjit_parser::o_op_t &oo_map,
+                       ptjit_parser::nv_t &nv_map)
 {
   std::vector<std::pair<int64_t,
                         torch::IntArrayRef>> output_sizes;
@@ -708,9 +706,9 @@ evaluate_with_missions(torch::jit::script::Module &model,
    * @brief Delegator to fetch output size
    * 
    */
-  static auto o_size_delegator = [&](torch::jit::Named<torch::jit::Module> &submodule,
-                              c10::IValue & o,
-                              std::vector<c10::IValue> & _)
+  static auto o_size_mission = [&](torch::jit::Named<torch::jit::Module> &submodule,
+                                   c10::IValue & o,
+                                   std::vector<c10::IValue> & _)
   { 
     // collect layer bandwidth
     auto hidden_o_t = o.toTensor();
@@ -729,31 +727,31 @@ evaluate_with_missions(torch::jit::script::Module &model,
   int64_t conv_macs = 0;
   std::vector<int64_t> conv_macs_v;
   int64_t gemm_macs = 0;
-  auto mac_cal_delegator = [&](torch::jit::Named<torch::jit::Module> &submodule,
-                               c10::IValue & o,
-                               std::vector<c10::IValue> & is)
+  static auto mac_cal_mission = [&](torch::jit::Named<torch::jit::Module> &submodule,
+                                    c10::IValue & o,
+                                    std::vector<c10::IValue> & is)
   {
-    /**
-     * @brief Get width and height from a convolution tensor
-     *    i.e. get value of the last two indices
-     */
-    static auto get_conv_tensor_hw = [](c10::IValue &tensor) {
-      auto arr = tensor.toTensor().sizes();
-      return arr.slice(arr.size() - 2, 2);
-    };
-    /**
-     * @brief Get number of channels from a tensor
-     */
-    static auto get_conv_tensor_ch = [](c10::IValue &tensor) {
-      auto arr = tensor.toTensor().sizes();
-      return arr[arr.size() - 3];
-    };
     
     /**
      * Calculate macs for linear and convolution layers
      */
     switch (cal_mac::layer_type(submodule.name)) {
     case cal_mac::LayerType::CONV: {
+      /**
+      * @brief Get width and height from a convolution tensor
+      *    i.e. get value of the last two indices
+      */
+      static auto get_conv_tensor_hw = [](c10::IValue &tensor) {
+        auto arr = tensor.toTensor().sizes();
+        return arr.slice(arr.size() - 2, 2);
+      };
+      /**
+      * @brief Get number of channels from a tensor
+      */
+      static auto get_conv_tensor_ch = [](c10::IValue &tensor) {
+        auto arr = tensor.toTensor().sizes();
+        return arr[arr.size() - 3];
+      };
       print_debug_msg("Recognized (" << submodule.name << ")\n");
       ptjit_parser::node_io_t loc_node_io_map; // useless here
       ptjit_parser::o_op_t loc_oo_map;
@@ -764,7 +762,7 @@ evaluate_with_missions(torch::jit::script::Module &model,
                           loc_oo_map,
                           loc_nv_map);
 
-      get_attributes(submodule.value, loc_nv_map);
+      ptjit_parser::get_attributes(submodule.value, loc_nv_map);
 
       print_debug_msg("All node io map..." << std::endl);
 
@@ -797,7 +795,7 @@ evaluate_with_missions(torch::jit::script::Module &model,
       print_debug_msg("------------------" << std::endl);
 
       /**
-       * at source code `torch/jit/_shape_functions.py`.
+       * Ref: source code `torch/jit/_shape_functions.py`.
        *
        * ```Python
        * conv(input,
@@ -837,7 +835,7 @@ evaluate_with_missions(torch::jit::script::Module &model,
                           loc_oo_map,
                           loc_nv_map);
 
-      get_attributes(submodule.value, loc_nv_map);
+      ptjit_parser::get_attributes(submodule.value, loc_nv_map);
       
       auto loc_macs = cal_mac::cal_linear_macs(is[0],
                                                o,
@@ -857,12 +855,12 @@ evaluate_with_missions(torch::jit::script::Module &model,
    */
   c10::IValue input = torch::zeros({1, 3, 224, 224});
 
-  evaluate(model,
-           input,
-           node_io_map,
-           oo_map,
-           nv_map,
-           { o_size_delegator, mac_cal_delegator });
+  ptjit_parser::evaluate(model,
+                        input,
+                        node_io_map,
+                        oo_map,
+                        nv_map,
+                        { o_size_mission, mac_cal_mission });
 
   print_debug_msg("Conv macs: " << conv_macs << std::endl);
   for (auto &n: conv_macs_v)
@@ -872,34 +870,37 @@ evaluate_with_missions(torch::jit::script::Module &model,
   return { output_sizes, { conv_macs, gemm_macs } };
 }
 
-}
-
 int main() {
+  /**
+   * Fetch `HOME` environment variable to get model path
+   *    for arbitrary user using this Unix-based container
+   */
   torch::jit::script::Module model =
-      torch::jit::load("/home/archroiko/projects/lab02/hw2-4/models/model.pt");
+      torch::jit::load(std::string(getenv("HOME")) +
+        "/projects/lab02/hw2-4/models/model.pt");
 
   int64_t total_param_bytes = 0;
   for (auto p : model.parameters())
     total_param_bytes += p.numel() * p.element_size();
 
   /**
-   * @brief hw 2-4-1: Calculate memory requirements for storing the model weights
+   * @brief hw 2-4-1: Calculate model memory requirements for storing weights
    */
   { /* Collect and print data */
     std::stringstream ss;
     ss << "Total memory for parameters: " << total_param_bytes << " bytes";
 
     print_hw_result("2-4-1",
-                    "Calculate memory requirements for storing the model weights",
+                    "Calculate model memory requirements for storing weights",
                     {ss.str()});
   }
 
   /**
    * @brief Dump model info for debugging
    */
-  // print_hw_result("2-4-0",
-  //                 "Dump model info",
-  //                 { model.dump_to_str(true, false, false).c_str() });
+  print_hw_result("2-4-0",
+                  "Dump model info",
+                  { model.dump_to_str(true, false, false).c_str() });
 
   ptjit_parser::node_io_t node_io_map;
   ptjit_parser::o_op_t oo_map;
@@ -907,10 +908,10 @@ int main() {
 
   ptjit_parser::trace(model, node_io_map, oo_map, nv_map);
 
-  auto evaluated_info = ptjit_parser::evaluate_with_missions(model,
-                                                             node_io_map,
-                                                             oo_map,
-                                                             nv_map);
+  auto evaluated_info = evaluate_with_missions(model,
+                                               node_io_map,
+                                               oo_map,
+                                               nv_map);
   auto output_form = evaluated_info.first;
 
   /**
@@ -930,7 +931,7 @@ int main() {
       std::stringstream ss;
       ss << "Total memory for activations: " << total_activation_bytes << " bytes";
       output_sizes.push_back(ss.str());
-      output_sizes.push_back("Output size of each layers...");
+      output_sizes.push_back("Output size of each layers...[ SHAPE ] (ELEMENT_SIZE)");
     }
 
     /* Additional information: output shape */

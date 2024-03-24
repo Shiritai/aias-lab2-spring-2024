@@ -20,7 +20,7 @@ class OnnxHelper:
 
     def fetch_proto(self, fid: str):
         """
-        Fetch dimension and size information using field identifier `fid`
+        Fetch `ValueInfoProto` or `TensorProto` using field identifier `fid`
         """
         graph = self.model.graph # alias
         idx = self.input_map.get(fid, None)
